@@ -19,7 +19,7 @@ public class Main {
                     i++;
                 }
             } else if (c == '\'') {
-                // Single quotes: keep everything literally until closing quote
+                // Single quotes: everything literal including backslashes
                 i++;
                 while (i < input.length() && input.charAt(i) != '\'') {
                     current.append(input.charAt(i));
@@ -27,11 +27,22 @@ public class Main {
                 }
                 i++; // skip closing quote
             } else if (c == '"') {
-                // Double quotes: keep everything literally until closing quote
+                // Double quotes: only \\ and \" are special
                 i++;
                 while (i < input.length() && input.charAt(i) != '"') {
-                    current.append(input.charAt(i));
-                    i++;
+                    if (input.charAt(i) == '\\' && i + 1 < input.length()) {
+                        char next = input.charAt(i + 1);
+                        if (next == '\\' || next == '"') {
+                            current.append(next);
+                            i += 2;
+                        } else {
+                            current.append(input.charAt(i));
+                            i++;
+                        }
+                    } else {
+                        current.append(input.charAt(i));
+                        i++;
+                    }
                 }
                 i++; // skip closing quote
             } else if (c == ' ') {
