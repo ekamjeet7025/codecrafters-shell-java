@@ -20,7 +20,16 @@ public class Main {
             }
 
             if (input.startsWith("echo ")) {
-                System.out.println(input.substring(5));
+                String arg = input.substring(5);
+                // Remove surrounding single quotes
+                if (arg.startsWith("'") && arg.endsWith("'")) {
+                    arg = arg.substring(1, arg.length() - 1);
+                }
+                // Remove surrounding double quotes
+                if (arg.startsWith("\"") && arg.endsWith("\"")) {
+                    arg = arg.substring(1, arg.length() - 1);
+                }
+                System.out.println(arg);
                 continue;
             }
 
