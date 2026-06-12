@@ -21,21 +21,14 @@ public class Main {
 
             if (input.startsWith("type ")) {
                 String cmd = input.substring(5).trim();
-                
-                // Check builtins first
                 boolean isBuiltin = false;
                 for (String b : builtins) {
-                    if (b.equals(cmd)) {
-                        isBuiltin = true;
-                        break;
-                    }
+                    if (b.equals(cmd)) { isBuiltin = true; break; }
                 }
                 if (isBuiltin) {
                     System.out.println(cmd + " is a shell builtin");
                     continue;
                 }
-
-                // Search in PATH
                 String pathEnv = System.getenv("PATH");
                 String[] folders = pathEnv.split(":");
                 boolean found = false;
@@ -47,13 +40,29 @@ public class Main {
                         break;
                     }
                 }
-                if (!found) {
-                    System.out.println(cmd + ": not found");
-                }
+                if (!found) System.out.println(cmd + ": not found");
                 continue;
             }
 
-            System.out.println(input + ": command not found");
+            // Try to run as external program
+            String[] parts = input.split(" ");
+            String pathEnv = System.getenv("PATH");
+            String[] folders = pathEnv.split(":");
+            boolean found = false;
+            for (String folder : folders) {
+                File f = new File(folder + "/" + parts[0]);
+                if (f.exists() && f.canExecute()) {
+                    ProcessBuilder pb = new ProcessBuilder(parts);
+                    pb.inheritIO();
+                    Process p = pb.start();
+                    p.waitFor();
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) {
+                System.out.println(input + ": command not found");
+            }
         }
     }
 }
