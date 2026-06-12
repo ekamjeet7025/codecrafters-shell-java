@@ -8,7 +8,7 @@ public class Main {
             System.out.print("$ ");
             String input = scanner.nextLine().trim();
 
-            if (input.equals("exit 0")) {
+            if (input.equals("exit 0") || input.equals("exit")) {
                 System.exit(0);
             }
 
