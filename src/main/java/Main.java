@@ -60,8 +60,10 @@ public class Main {
     }
 
     static class RedirectInfo {
-        String stdoutFile = null;  // for > or 1>
-        String stderrFile = null;  // for 2>
+        String stdoutFile = null;
+        boolean stdoutAppend = false;
+        String stderrFile = null;
+        boolean stderrAppend = false;
         List<String> cmdTokens = new ArrayList<>();
     }
 
@@ -72,9 +74,19 @@ public class Main {
             String t = tokens.get(i);
             if ((t.equals(">") || t.equals("1>")) && i + 1 < tokens.size()) {
                 info.stdoutFile = tokens.get(i + 1);
+                info.stdoutAppend = false;
+                i += 2;
+            } else if ((t.equals(">>") || t.equals("1>>")) && i + 1 < tokens.size()) {
+                info.stdoutFile = tokens.get(i + 1);
+                info.stdoutAppend = true;
                 i += 2;
             } else if (t.equals("2>") && i + 1 < tokens.size()) {
                 info.stderrFile = tokens.get(i + 1);
+                info.stderrAppend = false;
+                i += 2;
+            } else if (t.equals("2>>") && i + 1 < tokens.size()) {
+                info.stderrFile = tokens.get(i + 1);
+                info.stderrAppend = true;
                 i += 2;
             } else {
                 info.cmdTokens.add(t);
@@ -110,14 +122,13 @@ public class Main {
             List<String> tokens = redirect.cmdTokens;
             if (tokens.isEmpty()) continue;
 
-            // Set up streams
             PrintStream outStream = originalOut;
             PrintStream errStream = originalErr;
             if (redirect.stdoutFile != null) {
-                outStream = new PrintStream(new FileOutputStream(redirect.stdoutFile, false));
+                outStream = new PrintStream(new FileOutputStream(redirect.stdoutFile, redirect.stdoutAppend));
             }
             if (redirect.stderrFile != null) {
-                errStream = new PrintStream(new FileOutputStream(redirect.stderrFile, false));
+                errStream = new PrintStream(new FileOutputStream(redirect.stderrFile, redirect.stderrAppend));
             }
 
             String cmd = tokens.get(0);
@@ -175,12 +186,16 @@ public class Main {
                 if (f.exists() && f.canExecute()) {
                     ProcessBuilder pb = new ProcessBuilder(tokens);
                     if (redirect.stdoutFile != null) {
-                        pb.redirectOutput(new File(redirect.stdoutFile));
+                        pb.redirectOutput(redirect.stdoutAppend
+                            ? ProcessBuilder.Redirect.appendTo(new File(redirect.stdoutFile))
+                            : ProcessBuilder.Redirect.to(new File(redirect.stdoutFile)));
                     } else {
                         pb.redirectOutput(ProcessBuilder.Redirect.INHERIT);
                     }
                     if (redirect.stderrFile != null) {
-                        pb.redirectError(new File(redirect.stderrFile));
+                        pb.redirectError(redirect.stderrAppend
+                            ? ProcessBuilder.Redirect.appendTo(new File(redirect.stderrFile))
+                            : ProcessBuilder.Redirect.to(new File(redirect.stderrFile)));
                     } else {
                         pb.redirectError(ProcessBuilder.Redirect.INHERIT);
                     }
