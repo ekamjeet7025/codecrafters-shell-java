@@ -4,7 +4,7 @@ import java.io.File;
 public class Main {
     public static void main(String[] args) throws Exception {
         Scanner scanner = new Scanner(System.in);
-        String[] builtins = {"echo", "exit", "type"};
+        String[] builtins = {"echo", "exit", "type", "pwd"};
 
         while (true) {
             System.out.print("$ ");
@@ -12,6 +12,11 @@ public class Main {
 
             if (input.equals("exit 0") || input.equals("exit")) {
                 System.exit(0);
+            }
+
+            if (input.equals("pwd")) {
+                System.out.println(System.getProperty("user.dir"));
+                continue;
             }
 
             if (input.startsWith("echo ")) {
