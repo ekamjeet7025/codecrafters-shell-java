@@ -77,58 +77,87 @@ public class Main {
 
     static String[] ALL_BUILTINS = {"echo", "exit", "type", "pwd", "cd"};
 
+    static List<String> getMatches(String partial) {
+        List<String> matches = new ArrayList<>();
+        for (String b : ALL_BUILTINS) {
+            if (b.startsWith(partial)) matches.add(b);
+        }
+        String pathEnv = System.getenv("PATH");
+        if (pathEnv != null) {
+            for (String folder : pathEnv.split(":")) {
+                File dir = new File(folder);
+                if (dir.isDirectory()) {
+                    File[] files = dir.listFiles();
+                    if (files != null) {
+                        for (File f : files) {
+                            if (f.getName().startsWith(partial) && f.canExecute() && !matches.contains(f.getName())) {
+                                matches.add(f.getName());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        Collections.sort(matches);
+        return matches;
+    }
+
     static String readLine() throws IOException {
         StringBuilder sb = new StringBuilder();
         FileInputStream tty = new FileInputStream("/dev/tty");
+        int tabCount = 0;
+
         while (true) {
             int ch = tty.read();
             if (ch == '\r' || ch == '\n') {
                 System.out.print("\r\n");
                 System.out.flush();
+                tabCount = 0;
                 break;
             } else if (ch == 127 || ch == 8) {
-                // Backspace
                 if (sb.length() > 0) {
                     sb.deleteCharAt(sb.length() - 1);
                     System.out.print("\b \b");
                     System.out.flush();
                 }
+                tabCount = 0;
             } else if (ch == '\t') {
-                // TAB - try to autocomplete
                 String partial = sb.toString();
-                List<String> matches = new ArrayList<>();
-                for (String b : ALL_BUILTINS) {
-                    if (b.startsWith(partial)) matches.add(b);
-                }
-                // Also search PATH
-                String pathEnv = System.getenv("PATH");
-                if (pathEnv != null) {
-                    for (String folder : pathEnv.split(":")) {
-                        File dir = new File(folder);
-                        if (dir.isDirectory()) {
-                            for (File f : dir.listFiles()) {
-                                if (f.getName().startsWith(partial) && f.canExecute()) {
-                                    if (!matches.contains(f.getName())) matches.add(f.getName());
-                                }
-                            }
-                        }
-                    }
-                }
+                List<String> matches = getMatches(partial);
+
                 if (matches.size() == 1) {
+                    // Complete it
                     String completion = matches.get(0);
-                    // Clear current input and reprint
                     for (int i = 0; i < sb.length(); i++) System.out.print("\b \b");
                     System.out.print(completion + " ");
                     System.out.flush();
                     sb = new StringBuilder(completion + " ");
+                    tabCount = 0;
                 } else if (matches.size() == 0) {
-                    System.out.print("\007"); // bell
+                    System.out.print("\007");
                     System.out.flush();
+                    tabCount = 0;
+                } else {
+                    // Multiple matches
+                    tabCount++;
+                    if (tabCount == 1) {
+                        // First TAB: ring bell
+                        System.out.print("\007");
+                        System.out.flush();
+                    } else {
+                        // Second TAB: show all matches
+                        System.out.print("\r\n");
+                        System.out.print(String.join("  ", matches));
+                        System.out.print("\r\n$ " + partial);
+                        System.out.flush();
+                        tabCount = 0;
+                    }
                 }
             } else if (ch >= 32) {
                 sb.append((char) ch);
                 System.out.print((char) ch);
                 System.out.flush();
+                tabCount = 0;
             }
         }
         return sb.toString().trim();
@@ -154,7 +183,7 @@ public class Main {
                 }
 
                 if (input.equals("pwd")) {
-                    System.out.println(currentDir + "\r");
+                    System.out.print(currentDir + "\r\n");
                     continue;
                 }
 
