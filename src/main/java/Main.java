@@ -2,6 +2,8 @@ import java.util.Scanner;
 import java.util.ArrayList;
 import java.util.List;
 import java.io.File;
+import java.io.FileOutputStream;
+import java.io.PrintStream;
 
 public class Main {
 
@@ -12,22 +14,19 @@ public class Main {
         while (i < input.length()) {
             char c = input.charAt(i);
             if (c == '\\') {
-                // Backslash outside quotes: skip backslash, keep next char literally
                 i++;
                 if (i < input.length()) {
                     current.append(input.charAt(i));
                     i++;
                 }
             } else if (c == '\'') {
-                // Single quotes: everything literal including backslashes
                 i++;
                 while (i < input.length() && input.charAt(i) != '\'') {
                     current.append(input.charAt(i));
                     i++;
                 }
-                i++; // skip closing quote
+                i++;
             } else if (c == '"') {
-                // Double quotes: only \\ and \" are special
                 i++;
                 while (i < input.length() && input.charAt(i) != '"') {
                     if (input.charAt(i) == '\\' && i + 1 < input.length()) {
@@ -44,7 +43,7 @@ public class Main {
                         i++;
                     }
                 }
-                i++; // skip closing quote
+                i++;
             } else if (c == ' ') {
                 if (current.length() > 0) {
                     tokens.add(current.toString());
@@ -60,9 +59,24 @@ public class Main {
         return tokens;
     }
 
+    // Find redirect output file if > or 1> exists, returns null if none
+    static String findRedirectFile(List<String> tokens, List<String> cmdTokens) {
+        for (int i = 0; i < tokens.size(); i++) {
+            String t = tokens.get(i);
+            if (t.equals(">") || t.equals("1>")) {
+                // everything before is the command, next token is the file
+                for (int j = 0; j < i; j++) cmdTokens.add(tokens.get(j));
+                return i + 1 < tokens.size() ? tokens.get(i + 1) : null;
+            }
+        }
+        cmdTokens.addAll(tokens);
+        return null;
+    }
+
     public static void main(String[] args) throws Exception {
         Scanner scanner = new Scanner(System.in);
         String[] builtins = {"echo", "exit", "type", "pwd"};
+        PrintStream originalOut = System.out;
 
         while (true) {
             System.out.print("$ ");
@@ -77,21 +91,32 @@ public class Main {
                 continue;
             }
 
-            List<String> tokens = parseTokens(input);
-            if (tokens.isEmpty()) continue;
+            List<String> allTokens = parseTokens(input);
+            if (allTokens.isEmpty()) continue;
+
+            List<String> tokens = new ArrayList<>();
+            String redirectFile = findRedirectFile(allTokens, tokens);
+
+            // Set up output stream
+            PrintStream outStream = originalOut;
+            if (redirectFile != null) {
+                outStream = new PrintStream(new FileOutputStream(redirectFile, false));
+            }
+
             String cmd = tokens.get(0);
 
             if (cmd.equals("echo")) {
                 if (tokens.size() == 1) {
-                    System.out.println();
+                    outStream.println();
                 } else {
                     StringBuilder sb = new StringBuilder();
                     for (int i = 1; i < tokens.size(); i++) {
                         if (i > 1) sb.append(" ");
                         sb.append(tokens.get(i));
                     }
-                    System.out.println(sb.toString());
+                    outStream.println(sb.toString());
                 }
+                if (redirectFile != null) outStream.close();
                 continue;
             }
 
@@ -102,7 +127,8 @@ public class Main {
                     if (b.equals(typeCmd)) { isBuiltin = true; break; }
                 }
                 if (isBuiltin) {
-                    System.out.println(typeCmd + " is a shell builtin");
+                    outStream.println(typeCmd + " is a shell builtin");
+                    if (redirectFile != null) outStream.close();
                     continue;
                 }
                 String pathEnv = System.getenv("PATH");
@@ -111,16 +137,17 @@ public class Main {
                 for (String folder : folders) {
                     File f = new File(folder + "/" + typeCmd);
                     if (f.exists() && f.canExecute()) {
-                        System.out.println(typeCmd + " is " + folder + "/" + typeCmd);
+                        outStream.println(typeCmd + " is " + folder + "/" + typeCmd);
                         found = true;
                         break;
                     }
                 }
-                if (!found) System.out.println(typeCmd + ": not found");
+                if (!found) outStream.println(typeCmd + ": not found");
+                if (redirectFile != null) outStream.close();
                 continue;
             }
 
-            // Try to run as external program
+            // External program
             String pathEnv = System.getenv("PATH");
             String[] folders = pathEnv.split(":");
             boolean found = false;
@@ -128,7 +155,12 @@ public class Main {
                 File f = new File(folder + "/" + cmd);
                 if (f.exists() && f.canExecute()) {
                     ProcessBuilder pb = new ProcessBuilder(tokens);
-                    pb.inheritIO();
+                    if (redirectFile != null) {
+                        pb.redirectOutput(new File(redirectFile));
+                    } else {
+                        pb.redirectOutput(ProcessBuilder.Redirect.INHERIT);
+                    }
+                    pb.redirectError(ProcessBuilder.Redirect.INHERIT);
                     Process p = pb.start();
                     p.waitFor();
                     found = true;
@@ -136,8 +168,9 @@ public class Main {
                 }
             }
             if (!found) {
-                System.out.println(input + ": command not found");
+                originalOut.println(input + ": command not found");
             }
+            if (redirectFile != null && outStream != originalOut) outStream.close();
         }
     }
 }
