@@ -29,6 +29,8 @@ public class Main {
                 if (arg.startsWith("\"") && arg.endsWith("\"")) {
                     arg = arg.substring(1, arg.length() - 1);
                 }
+                // Collapse multiple spaces into one
+                arg = arg.trim().replaceAll("\\s+", " ");
                 System.out.println(arg);
                 continue;
             }
