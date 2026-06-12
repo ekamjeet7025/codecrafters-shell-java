@@ -59,24 +59,36 @@ public class Main {
         return tokens;
     }
 
-    // Find redirect output file if > or 1> exists, returns null if none
-    static String findRedirectFile(List<String> tokens, List<String> cmdTokens) {
-        for (int i = 0; i < tokens.size(); i++) {
+    static class RedirectInfo {
+        String stdoutFile = null;  // for > or 1>
+        String stderrFile = null;  // for 2>
+        List<String> cmdTokens = new ArrayList<>();
+    }
+
+    static RedirectInfo parseRedirects(List<String> tokens) {
+        RedirectInfo info = new RedirectInfo();
+        int i = 0;
+        while (i < tokens.size()) {
             String t = tokens.get(i);
-            if (t.equals(">") || t.equals("1>")) {
-                // everything before is the command, next token is the file
-                for (int j = 0; j < i; j++) cmdTokens.add(tokens.get(j));
-                return i + 1 < tokens.size() ? tokens.get(i + 1) : null;
+            if ((t.equals(">") || t.equals("1>")) && i + 1 < tokens.size()) {
+                info.stdoutFile = tokens.get(i + 1);
+                i += 2;
+            } else if (t.equals("2>") && i + 1 < tokens.size()) {
+                info.stderrFile = tokens.get(i + 1);
+                i += 2;
+            } else {
+                info.cmdTokens.add(t);
+                i++;
             }
         }
-        cmdTokens.addAll(tokens);
-        return null;
+        return info;
     }
 
     public static void main(String[] args) throws Exception {
         Scanner scanner = new Scanner(System.in);
         String[] builtins = {"echo", "exit", "type", "pwd"};
         PrintStream originalOut = System.out;
+        PrintStream originalErr = System.err;
 
         while (true) {
             System.out.print("$ ");
@@ -94,13 +106,18 @@ public class Main {
             List<String> allTokens = parseTokens(input);
             if (allTokens.isEmpty()) continue;
 
-            List<String> tokens = new ArrayList<>();
-            String redirectFile = findRedirectFile(allTokens, tokens);
+            RedirectInfo redirect = parseRedirects(allTokens);
+            List<String> tokens = redirect.cmdTokens;
+            if (tokens.isEmpty()) continue;
 
-            // Set up output stream
+            // Set up streams
             PrintStream outStream = originalOut;
-            if (redirectFile != null) {
-                outStream = new PrintStream(new FileOutputStream(redirectFile, false));
+            PrintStream errStream = originalErr;
+            if (redirect.stdoutFile != null) {
+                outStream = new PrintStream(new FileOutputStream(redirect.stdoutFile, false));
+            }
+            if (redirect.stderrFile != null) {
+                errStream = new PrintStream(new FileOutputStream(redirect.stderrFile, false));
             }
 
             String cmd = tokens.get(0);
@@ -116,7 +133,8 @@ public class Main {
                     }
                     outStream.println(sb.toString());
                 }
-                if (redirectFile != null) outStream.close();
+                if (redirect.stdoutFile != null) outStream.close();
+                if (redirect.stderrFile != null) errStream.close();
                 continue;
             }
 
@@ -128,7 +146,7 @@ public class Main {
                 }
                 if (isBuiltin) {
                     outStream.println(typeCmd + " is a shell builtin");
-                    if (redirectFile != null) outStream.close();
+                    if (redirect.stdoutFile != null) outStream.close();
                     continue;
                 }
                 String pathEnv = System.getenv("PATH");
@@ -143,7 +161,8 @@ public class Main {
                     }
                 }
                 if (!found) outStream.println(typeCmd + ": not found");
-                if (redirectFile != null) outStream.close();
+                if (redirect.stdoutFile != null) outStream.close();
+                if (redirect.stderrFile != null) errStream.close();
                 continue;
             }
 
@@ -155,12 +174,16 @@ public class Main {
                 File f = new File(folder + "/" + cmd);
                 if (f.exists() && f.canExecute()) {
                     ProcessBuilder pb = new ProcessBuilder(tokens);
-                    if (redirectFile != null) {
-                        pb.redirectOutput(new File(redirectFile));
+                    if (redirect.stdoutFile != null) {
+                        pb.redirectOutput(new File(redirect.stdoutFile));
                     } else {
                         pb.redirectOutput(ProcessBuilder.Redirect.INHERIT);
                     }
-                    pb.redirectError(ProcessBuilder.Redirect.INHERIT);
+                    if (redirect.stderrFile != null) {
+                        pb.redirectError(new File(redirect.stderrFile));
+                    } else {
+                        pb.redirectError(ProcessBuilder.Redirect.INHERIT);
+                    }
                     Process p = pb.start();
                     p.waitFor();
                     found = true;
@@ -170,7 +193,8 @@ public class Main {
             if (!found) {
                 originalOut.println(input + ": command not found");
             }
-            if (redirectFile != null && outStream != originalOut) outStream.close();
+            if (redirect.stdoutFile != null) outStream.close();
+            if (redirect.stderrFile != null) errStream.close();
         }
     }
 }
