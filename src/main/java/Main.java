@@ -5,15 +5,21 @@ import java.io.File;
 
 public class Main {
 
-    // Parse a line into tokens, handling single and double quotes
     static List<String> parseTokens(String input) {
         List<String> tokens = new ArrayList<>();
         StringBuilder current = new StringBuilder();
         int i = 0;
         while (i < input.length()) {
             char c = input.charAt(i);
-            if (c == '\'') {
-                // Read until closing single quote
+            if (c == '\\') {
+                // Backslash outside quotes: skip backslash, keep next char literally
+                i++;
+                if (i < input.length()) {
+                    current.append(input.charAt(i));
+                    i++;
+                }
+            } else if (c == '\'') {
+                // Single quotes: keep everything literally until closing quote
                 i++;
                 while (i < input.length() && input.charAt(i) != '\'') {
                     current.append(input.charAt(i));
@@ -21,7 +27,7 @@ public class Main {
                 }
                 i++; // skip closing quote
             } else if (c == '"') {
-                // Read until closing double quote
+                // Double quotes: keep everything literally until closing quote
                 i++;
                 while (i < input.length() && input.charAt(i) != '"') {
                     current.append(input.charAt(i));
@@ -61,9 +67,7 @@ public class Main {
             }
 
             List<String> tokens = parseTokens(input);
-
             if (tokens.isEmpty()) continue;
-
             String cmd = tokens.get(0);
 
             if (cmd.equals("echo")) {
