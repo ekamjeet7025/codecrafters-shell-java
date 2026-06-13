@@ -303,14 +303,19 @@ public class Main {
             String cmd = tokens.get(0);
 
             if (cmd.equals("jobs")) {
-                // Reap first, then show remaining running jobs
-                reapJobs(originalOut);
                 List<Job> allSorted = new ArrayList<>(jobList);
                 allSorted.sort((a, b) -> a.jobNumber - b.jobNumber);
+                List<Job> toRemove = new ArrayList<>();
                 for (Job j : allSorted) {
                     char marker = getMarker(j);
-                    originalOut.println("[" + j.jobNumber + "]" + marker + "  " + formatStatus("Running") + j.command + " &");
+                    if (!j.process.isAlive()) {
+                        originalOut.println("[" + j.jobNumber + "]" + marker + "  " + formatStatus("Done") + j.command);
+                        toRemove.add(j);
+                    } else {
+                        originalOut.println("[" + j.jobNumber + "]" + marker + "  " + formatStatus("Running") + j.command + " &");
+                    }
                 }
+                jobList.removeAll(toRemove);
                 continue;
             }
 
