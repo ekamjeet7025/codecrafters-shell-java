@@ -79,7 +79,6 @@ public class Main {
 
     static List<Job> jobList = new ArrayList<>();
 
-    // Get smallest available job number
     static int nextJobNumber() {
         Set<Integer> used = new HashSet<>();
         for (Job j : jobList) used.add(j.jobNumber);
@@ -88,7 +87,6 @@ public class Main {
         return n;
     }
 
-    // Get marker for a job based on its position in sorted job list
     static char getMarker(Job job) {
         List<Job> sorted = new ArrayList<>(jobList);
         sorted.sort((a, b) -> a.jobNumber - b.jobNumber);
@@ -99,30 +97,22 @@ public class Main {
         return ' ';
     }
 
-    // Format status field padded to 24 chars
     static String formatStatus(String status) {
         return String.format("%-24s", status);
     }
 
-    // Reap completed jobs — check each job, print Done, remove from list
     static void reapJobs(PrintStream out) {
-        List<Job> toRemove = new ArrayList<>();
         List<Job> sorted = new ArrayList<>(jobList);
         sorted.sort((a, b) -> a.jobNumber - b.jobNumber);
-
-        // First pass: find done jobs
+        List<Job> toRemove = new ArrayList<>();
         for (Job j : sorted) {
             if (!j.process.isAlive()) {
+                char marker = getMarker(j);
+                out.println("[" + j.jobNumber + "]" + marker + "  " + formatStatus("Done") + j.command);
                 toRemove.add(j);
             }
         }
-
-        // Print done jobs with correct markers (before removing)
-        for (Job j : toRemove) {
-            char marker = getMarker(j);
-            out.println("[" + j.jobNumber + "]" + marker + "  " + formatStatus("Done") + j.command);
-            jobList.remove(j);
-        }
+        jobList.removeAll(toRemove);
     }
 
     public static void main(String[] args) throws Exception {
@@ -172,14 +162,28 @@ public class Main {
             String cmd = tokens.get(0);
 
             if (cmd.equals("jobs")) {
-                // Reap first, then display remaining
-                reapJobs(originalOut);
-                List<Job> sorted = new ArrayList<>(jobList);
-                sorted.sort((a, b) -> a.jobNumber - b.jobNumber);
-                for (Job j : sorted) {
-                    char marker = getMarker(j);
-                    originalOut.println("[" + j.jobNumber + "]" + marker + "  " + formatStatus("Running") + j.command + " &");
+                // Check all jobs, print running and done together sorted
+                List<Job> allSorted = new ArrayList<>(jobList);
+                allSorted.sort((a, b) -> a.jobNumber - b.jobNumber);
+
+                List<Job> doneJobs = new ArrayList<>();
+                for (Job j : allSorted) {
+                    if (!j.process.isAlive()) doneJobs.add(j);
                 }
+
+                // Print all jobs sorted by number
+                for (Job j : allSorted) {
+                    char marker = getMarker(j);
+                    boolean isDone = !j.process.isAlive();
+                    if (isDone) {
+                        originalOut.println("[" + j.jobNumber + "]" + marker + "  " + formatStatus("Done") + j.command);
+                    } else {
+                        originalOut.println("[" + j.jobNumber + "]" + marker + "  " + formatStatus("Running") + j.command + " &");
+                    }
+                }
+
+                // Remove done jobs
+                jobList.removeAll(doneJobs);
                 continue;
             }
 
