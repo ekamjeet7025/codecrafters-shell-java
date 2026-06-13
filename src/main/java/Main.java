@@ -63,25 +63,67 @@ public class Main {
 
     static String[] ALL_BUILTINS = {"echo", "exit", "type", "pwd", "cd", "jobs"};
 
-    // Job tracking
     static class Job {
         int jobNumber;
         long pid;
         String command;
         Process process;
-        boolean done;
 
         Job(int jobNumber, long pid, String command, Process process) {
             this.jobNumber = jobNumber;
             this.pid = pid;
             this.command = command;
             this.process = process;
-            this.done = false;
         }
     }
 
     static List<Job> jobList = new ArrayList<>();
-    static int nextJobNumber = 1;
+
+    // Get smallest available job number
+    static int nextJobNumber() {
+        Set<Integer> used = new HashSet<>();
+        for (Job j : jobList) used.add(j.jobNumber);
+        int n = 1;
+        while (used.contains(n)) n++;
+        return n;
+    }
+
+    // Get marker for a job based on its position in sorted job list
+    static char getMarker(Job job) {
+        List<Job> sorted = new ArrayList<>(jobList);
+        sorted.sort((a, b) -> a.jobNumber - b.jobNumber);
+        int size = sorted.size();
+        if (size == 0) return ' ';
+        if (job.jobNumber == sorted.get(size - 1).jobNumber) return '+';
+        if (size >= 2 && job.jobNumber == sorted.get(size - 2).jobNumber) return '-';
+        return ' ';
+    }
+
+    // Format status field padded to 24 chars
+    static String formatStatus(String status) {
+        return String.format("%-24s", status);
+    }
+
+    // Reap completed jobs — check each job, print Done, remove from list
+    static void reapJobs(PrintStream out) {
+        List<Job> toRemove = new ArrayList<>();
+        List<Job> sorted = new ArrayList<>(jobList);
+        sorted.sort((a, b) -> a.jobNumber - b.jobNumber);
+
+        // First pass: find done jobs
+        for (Job j : sorted) {
+            if (!j.process.isAlive()) {
+                toRemove.add(j);
+            }
+        }
+
+        // Print done jobs with correct markers (before removing)
+        for (Job j : toRemove) {
+            char marker = getMarker(j);
+            out.println("[" + j.jobNumber + "]" + marker + "  " + formatStatus("Done") + j.command);
+            jobList.remove(j);
+        }
+    }
 
     public static void main(String[] args) throws Exception {
         Scanner scanner = new Scanner(System.in);
@@ -90,6 +132,9 @@ public class Main {
         String currentDir = System.getProperty("user.dir");
 
         while (true) {
+            // Reap before each prompt
+            reapJobs(originalOut);
+
             System.out.print("$ ");
             System.out.flush();
             String input = scanner.nextLine().trim();
@@ -106,7 +151,7 @@ public class Main {
             List<String> allTokens = parseTokens(input);
             if (allTokens.isEmpty()) continue;
 
-            // Check for background job
+            // Check for background &
             boolean isBackground = false;
             if (allTokens.get(allTokens.size() - 1).equals("&")) {
                 isBackground = true;
@@ -127,10 +172,13 @@ public class Main {
             String cmd = tokens.get(0);
 
             if (cmd.equals("jobs")) {
-                for (Job j : jobList) {
-                    if (!j.done) {
-                        System.out.println("[" + j.jobNumber + "] Running " + j.command);
-                    }
+                // Reap first, then display remaining
+                reapJobs(originalOut);
+                List<Job> sorted = new ArrayList<>(jobList);
+                sorted.sort((a, b) -> a.jobNumber - b.jobNumber);
+                for (Job j : sorted) {
+                    char marker = getMarker(j);
+                    originalOut.println("[" + j.jobNumber + "]" + marker + "  " + formatStatus("Running") + j.command + " &");
                 }
                 continue;
             }
@@ -211,9 +259,8 @@ public class Main {
                     Process p = pb.start();
 
                     if (isBackground) {
-                        // Don't wait — print job number and pid
                         long pid = p.pid();
-                        int jobNum = nextJobNumber++;
+                        int jobNum = nextJobNumber();
                         jobList.add(new Job(jobNum, pid, String.join(" ", tokens), p));
                         System.out.println("[" + jobNum + "] " + pid);
                     } else {
