@@ -1,5 +1,6 @@
 import java.io.*;
 import java.util.*;
+import java.util.concurrent.TimeUnit;
 
 public class Main {
 
@@ -101,11 +102,14 @@ public class Main {
         sorted.sort((a, b) -> a.jobNumber - b.jobNumber);
         List<Job> toRemove = new ArrayList<>();
         for (Job j : sorted) {
-            if (!j.process.isAlive()) {
-                char marker = getMarker(j);
-                out.println("[" + j.jobNumber + "]" + marker + "  " + formatStatus("Done") + j.command);
-                toRemove.add(j);
-            }
+            try {
+                boolean isDone = j.process.waitFor(50, TimeUnit.MILLISECONDS) || !j.process.isAlive();
+                if (isDone) {
+                    char marker = getMarker(j);
+                    out.println("[" + j.jobNumber + "]" + marker + "  " + formatStatus("Done") + j.command);
+                    toRemove.add(j);
+                }
+            } catch (Exception e) {}
         }
         jobList.removeAll(toRemove);
     }
@@ -307,8 +311,9 @@ public class Main {
                 allSorted.sort((a, b) -> a.jobNumber - b.jobNumber);
                 List<Job> toRemove = new ArrayList<>();
                 for (Job j : allSorted) {
+                    boolean isDone = j.process.waitFor(50, TimeUnit.MILLISECONDS) || !j.process.isAlive();
                     char marker = getMarker(j);
-                    if (!j.process.isAlive()) {
+                    if (isDone) {
                         originalOut.println("[" + j.jobNumber + "]" + marker + "  " + formatStatus("Done") + j.command);
                         toRemove.add(j);
                     } else {
