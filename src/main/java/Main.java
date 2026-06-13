@@ -174,18 +174,12 @@ public class Main {
         List<List<String>> allTokens = new ArrayList<>();
         for (String part : parts) allTokens.add(parseTokens(part.trim()));
 
-        // Separate external commands and builtins
-        // Use ProcessBuilder.startPipeline for all-external pipelines
-        // For builtins, handle with threads
-
-        // Check if any part is a builtin
         boolean hasBuiltin = false;
         for (List<String> tokens : allTokens) {
             if (!tokens.isEmpty() && isBuiltin(tokens.get(0))) { hasBuiltin = true; break; }
         }
 
         if (!hasBuiltin) {
-            // All external — use startPipeline
             List<ProcessBuilder> builders = new ArrayList<>();
             for (List<String> tokens : allTokens) {
                 ProcessBuilder pb = new ProcessBuilder(tokens);
@@ -193,16 +187,13 @@ public class Main {
                 pb.redirectError(ProcessBuilder.Redirect.INHERIT);
                 builders.add(pb);
             }
-            // First reads from terminal, last writes to terminal
             builders.get(0).redirectInput(ProcessBuilder.Redirect.INHERIT);
             builders.get(n - 1).redirectOutput(ProcessBuilder.Redirect.INHERIT);
-
             List<Process> processes = ProcessBuilder.startPipeline(builders);
             for (Process p : processes) p.waitFor();
             return;
         }
 
-        // Has builtins — use thread-based approach
         List<PipedOutputStream> pipeOuts = new ArrayList<>();
         List<PipedInputStream> pipeIns = new ArrayList<>();
         for (int i = 0; i < n - 1; i++) {
@@ -220,7 +211,6 @@ public class Main {
             final String cmd = tokens.get(0);
             final InputStream stdinStream = (i == 0) ? System.in : pipeIns.get(i - 1);
             final OutputStream stdoutStream = (i == n - 1) ? null : pipeOuts.get(i);
-            final int idx = i;
 
             if (isBuiltin(cmd)) {
                 Thread t = new Thread(() -> {
@@ -236,10 +226,8 @@ public class Main {
                 ProcessBuilder pb = new ProcessBuilder(tokens);
                 pb.directory(new File(currentDir));
                 pb.redirectError(ProcessBuilder.Redirect.INHERIT);
-
                 if (i == 0) pb.redirectInput(ProcessBuilder.Redirect.INHERIT);
                 else pb.redirectInput(ProcessBuilder.Redirect.PIPE);
-
                 if (i == n - 1) pb.redirectOutput(ProcessBuilder.Redirect.INHERIT);
                 else pb.redirectOutput(ProcessBuilder.Redirect.PIPE);
 
@@ -315,17 +303,14 @@ public class Main {
             String cmd = tokens.get(0);
 
             if (cmd.equals("jobs")) {
+                // Reap first, then show remaining running jobs
+                reapJobs(originalOut);
                 List<Job> allSorted = new ArrayList<>(jobList);
                 allSorted.sort((a, b) -> a.jobNumber - b.jobNumber);
-                List<Job> doneJobs = new ArrayList<>();
-                for (Job j : allSorted) if (!j.process.isAlive()) doneJobs.add(j);
                 for (Job j : allSorted) {
                     char marker = getMarker(j);
-                    boolean isDone = !j.process.isAlive();
-                    if (isDone) originalOut.println("[" + j.jobNumber + "]" + marker + "  " + formatStatus("Done") + j.command);
-                    else originalOut.println("[" + j.jobNumber + "]" + marker + "  " + formatStatus("Running") + j.command + " &");
+                    originalOut.println("[" + j.jobNumber + "]" + marker + "  " + formatStatus("Running") + j.command + " &");
                 }
-                jobList.removeAll(doneJobs);
                 continue;
             }
 
