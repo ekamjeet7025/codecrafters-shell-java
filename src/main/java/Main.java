@@ -102,6 +102,19 @@ public class Main {
         return matches;
     }
 
+    // Find longest common prefix of all strings in list
+    static String longestCommonPrefix(List<String> matches) {
+        if (matches.isEmpty()) return "";
+        String prefix = matches.get(0);
+        for (String m : matches) {
+            while (!m.startsWith(prefix)) {
+                prefix = prefix.substring(0, prefix.length() - 1);
+                if (prefix.isEmpty()) return "";
+            }
+        }
+        return prefix;
+    }
+
     static String readLine() throws IOException {
         StringBuilder sb = new StringBuilder();
         FileInputStream tty = new FileInputStream("/dev/tty");
@@ -125,32 +138,41 @@ public class Main {
                 String partial = sb.toString();
                 List<String> matches = getMatches(partial);
 
-                if (matches.size() == 1) {
-                    // Complete it
+                if (matches.size() == 0) {
+                    System.out.print("\007");
+                    System.out.flush();
+                    tabCount = 0;
+                } else if (matches.size() == 1) {
+                    // Only one match — complete with trailing space
                     String completion = matches.get(0);
                     for (int i = 0; i < sb.length(); i++) System.out.print("\b \b");
                     System.out.print(completion + " ");
                     System.out.flush();
                     sb = new StringBuilder(completion + " ");
                     tabCount = 0;
-                } else if (matches.size() == 0) {
-                    System.out.print("\007");
-                    System.out.flush();
-                    tabCount = 0;
                 } else {
-                    // Multiple matches
-                    tabCount++;
-                    if (tabCount == 1) {
-                        // First TAB: ring bell
-                        System.out.print("\007");
+                    // Multiple matches — find LCP
+                    String lcp = longestCommonPrefix(matches);
+                    if (lcp.length() > partial.length()) {
+                        // Can complete further to LCP
+                        for (int i = 0; i < sb.length(); i++) System.out.print("\b \b");
+                        System.out.print(lcp);
                         System.out.flush();
-                    } else {
-                        // Second TAB: show all matches
-                        System.out.print("\r\n");
-                        System.out.print(String.join("  ", matches));
-                        System.out.print("\r\n$ " + partial);
-                        System.out.flush();
+                        sb = new StringBuilder(lcp);
                         tabCount = 0;
+                    } else {
+                        // LCP same as what user typed — bell on first, show list on second
+                        tabCount++;
+                        if (tabCount == 1) {
+                            System.out.print("\007");
+                            System.out.flush();
+                        } else {
+                            System.out.print("\r\n");
+                            System.out.print(String.join("  ", matches));
+                            System.out.print("\r\n$ " + partial);
+                            System.out.flush();
+                            tabCount = 0;
+                        }
                     }
                 }
             } else if (ch >= 32) {
