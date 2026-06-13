@@ -75,7 +75,7 @@ public class Main {
         } catch (Exception e) {}
     }
 
-    static String[] ALL_BUILTINS = {"echo", "exit", "type", "pwd", "cd"};
+    static String[] ALL_BUILTINS = {"echo", "exit", "type", "pwd", "cd", "jobs"};
 
     static List<String> getMatches(String partial) {
         List<String> matches = new ArrayList<>();
@@ -102,7 +102,6 @@ public class Main {
         return matches;
     }
 
-    // Find longest common prefix of all strings in list
     static String longestCommonPrefix(List<String> matches) {
         if (matches.isEmpty()) return "";
         String prefix = matches.get(0);
@@ -137,13 +136,11 @@ public class Main {
             } else if (ch == '\t') {
                 String partial = sb.toString();
                 List<String> matches = getMatches(partial);
-
                 if (matches.size() == 0) {
                     System.out.print("\007");
                     System.out.flush();
                     tabCount = 0;
                 } else if (matches.size() == 1) {
-                    // Only one match — complete with trailing space
                     String completion = matches.get(0);
                     for (int i = 0; i < sb.length(); i++) System.out.print("\b \b");
                     System.out.print(completion + " ");
@@ -151,17 +148,14 @@ public class Main {
                     sb = new StringBuilder(completion + " ");
                     tabCount = 0;
                 } else {
-                    // Multiple matches — find LCP
                     String lcp = longestCommonPrefix(matches);
                     if (lcp.length() > partial.length()) {
-                        // Can complete further to LCP
                         for (int i = 0; i < sb.length(); i++) System.out.print("\b \b");
                         System.out.print(lcp);
                         System.out.flush();
                         sb = new StringBuilder(lcp);
                         tabCount = 0;
                     } else {
-                        // LCP same as what user typed — bell on first, show list on second
                         tabCount++;
                         if (tabCount == 1) {
                             System.out.print("\007");
@@ -188,8 +182,8 @@ public class Main {
     public static void main(String[] args) throws Exception {
         PrintStream originalOut = System.out;
         PrintStream originalErr = System.err;
-        String[] builtins = ALL_BUILTINS;
         String currentDir = System.getProperty("user.dir");
+        List<int[]> jobs = new ArrayList<>(); // [jobNumber, pid]
 
         setRawMode();
 
@@ -225,6 +219,11 @@ public class Main {
 
                 String cmd = tokens.get(0);
 
+                if (cmd.equals("jobs")) {
+                    // empty for now
+                    continue;
+                }
+
                 if (cmd.equals("cd")) {
                     String path = tokens.size() > 1 ? tokens.get(1) : System.getenv("HOME");
                     if (path.equals("~")) path = System.getenv("HOME");
@@ -257,7 +256,7 @@ public class Main {
                 if (cmd.equals("type")) {
                     String typeCmd = tokens.size() > 1 ? tokens.get(1) : "";
                     boolean isBuiltin = false;
-                    for (String b : builtins) {
+                    for (String b : ALL_BUILTINS) {
                         if (b.equals(typeCmd)) { isBuiltin = true; break; }
                     }
                     if (isBuiltin) {
