@@ -68,12 +68,9 @@ public class Main {
         long pid;
         String command;
         Process process;
-
         Job(int jobNumber, long pid, String command, Process process) {
-            this.jobNumber = jobNumber;
-            this.pid = pid;
-            this.command = command;
-            this.process = process;
+            this.jobNumber = jobNumber; this.pid = pid;
+            this.command = command; this.process = process;
         }
     }
 
@@ -97,9 +94,7 @@ public class Main {
         return ' ';
     }
 
-    static String formatStatus(String status) {
-        return String.format("%-24s", status);
-    }
+    static String formatStatus(String status) { return String.format("%-24s", status); }
 
     static void reapJobs(PrintStream out) {
         List<Job> sorted = new ArrayList<>(jobList);
@@ -130,7 +125,6 @@ public class Main {
         return false;
     }
 
-    // Split input by | respecting quotes
     static List<String> splitByPipe(String input) {
         List<String> parts = new ArrayList<>();
         StringBuilder current = new StringBuilder();
@@ -150,8 +144,9 @@ public class Main {
         return parts;
     }
 
-    // Execute builtin and write output to a PrintStream
-    static void execBuiltin(List<String> tokens, PrintStream out, PrintStream err, String currentDir) {
+    static String currentDir = System.getProperty("user.dir");
+
+    static void execBuiltinToStream(List<String> tokens, PrintStream out, PrintStream err) {
         String cmd = tokens.get(0);
         if (cmd.equals("echo")) {
             if (tokens.size() == 1) { out.println(); return; }
@@ -163,9 +158,8 @@ public class Main {
             out.println(sb.toString());
         } else if (cmd.equals("type")) {
             String typeCmd = tokens.size() > 1 ? tokens.get(1) : "";
-            if (isBuiltin(typeCmd)) {
-                out.println(typeCmd + " is a shell builtin");
-            } else {
+            if (isBuiltin(typeCmd)) out.println(typeCmd + " is a shell builtin");
+            else {
                 String path = findInPath(typeCmd);
                 if (path != null) out.println(typeCmd + " is " + path);
                 else out.println(typeCmd + ": not found");
@@ -175,7 +169,108 @@ public class Main {
         }
     }
 
-    static String currentDir = System.getProperty("user.dir");
+    static void executePipeline(List<String> parts, PrintStream originalOut, PrintStream originalErr) throws Exception {
+        int n = parts.size();
+        List<List<String>> allTokens = new ArrayList<>();
+        for (String part : parts) allTokens.add(parseTokens(part.trim()));
+
+        // Separate external commands and builtins
+        // Use ProcessBuilder.startPipeline for all-external pipelines
+        // For builtins, handle with threads
+
+        // Check if any part is a builtin
+        boolean hasBuiltin = false;
+        for (List<String> tokens : allTokens) {
+            if (!tokens.isEmpty() && isBuiltin(tokens.get(0))) { hasBuiltin = true; break; }
+        }
+
+        if (!hasBuiltin) {
+            // All external — use startPipeline
+            List<ProcessBuilder> builders = new ArrayList<>();
+            for (List<String> tokens : allTokens) {
+                ProcessBuilder pb = new ProcessBuilder(tokens);
+                pb.directory(new File(currentDir));
+                pb.redirectError(ProcessBuilder.Redirect.INHERIT);
+                builders.add(pb);
+            }
+            // First reads from terminal, last writes to terminal
+            builders.get(0).redirectInput(ProcessBuilder.Redirect.INHERIT);
+            builders.get(n - 1).redirectOutput(ProcessBuilder.Redirect.INHERIT);
+
+            List<Process> processes = ProcessBuilder.startPipeline(builders);
+            for (Process p : processes) p.waitFor();
+            return;
+        }
+
+        // Has builtins — use thread-based approach
+        List<PipedOutputStream> pipeOuts = new ArrayList<>();
+        List<PipedInputStream> pipeIns = new ArrayList<>();
+        for (int i = 0; i < n - 1; i++) {
+            PipedOutputStream po = new PipedOutputStream();
+            PipedInputStream pi = new PipedInputStream(po, 65536);
+            pipeOuts.add(po);
+            pipeIns.add(pi);
+        }
+
+        List<Thread> threads = new ArrayList<>();
+        List<Process> processes = new ArrayList<>();
+
+        for (int i = 0; i < n; i++) {
+            final List<String> tokens = allTokens.get(i);
+            final String cmd = tokens.get(0);
+            final InputStream stdinStream = (i == 0) ? System.in : pipeIns.get(i - 1);
+            final OutputStream stdoutStream = (i == n - 1) ? null : pipeOuts.get(i);
+            final int idx = i;
+
+            if (isBuiltin(cmd)) {
+                Thread t = new Thread(() -> {
+                    try {
+                        PrintStream out = (stdoutStream != null) ? new PrintStream(stdoutStream) : originalOut;
+                        execBuiltinToStream(tokens, out, originalErr);
+                        if (stdoutStream != null) stdoutStream.close();
+                    } catch (Exception e) {}
+                });
+                threads.add(t);
+                t.start();
+            } else {
+                ProcessBuilder pb = new ProcessBuilder(tokens);
+                pb.directory(new File(currentDir));
+                pb.redirectError(ProcessBuilder.Redirect.INHERIT);
+
+                if (i == 0) pb.redirectInput(ProcessBuilder.Redirect.INHERIT);
+                else pb.redirectInput(ProcessBuilder.Redirect.PIPE);
+
+                if (i == n - 1) pb.redirectOutput(ProcessBuilder.Redirect.INHERIT);
+                else pb.redirectOutput(ProcessBuilder.Redirect.PIPE);
+
+                Process p = pb.start();
+                processes.add(p);
+
+                if (i > 0) {
+                    final InputStream src = stdinStream;
+                    final OutputStream dst = p.getOutputStream();
+                    Thread t = new Thread(() -> {
+                        try { src.transferTo(dst); dst.close(); } catch (Exception e) {}
+                    });
+                    threads.add(t);
+                    t.start();
+                }
+
+                if (stdoutStream != null) {
+                    final InputStream src = p.getInputStream();
+                    final OutputStream dst = stdoutStream;
+                    Thread t = new Thread(() -> {
+                        try { src.transferTo(dst); dst.close(); } catch (Exception e) {}
+                    });
+                    threads.add(t);
+                    t.start();
+                }
+            }
+        }
+
+        for (Thread t : threads) t.join();
+        for (Process p : processes) p.waitFor();
+    }
 
     public static void main(String[] args) throws Exception {
         Scanner scanner = new Scanner(System.in);
@@ -185,25 +280,18 @@ public class Main {
 
         while (true) {
             reapJobs(originalOut);
-
             System.out.print("$ ");
             System.out.flush();
             String input = scanner.nextLine().trim();
 
-            if (input.equals("exit 0") || input.equals("exit")) {
-                System.exit(0);
-            }
+            if (input.equals("exit 0") || input.equals("exit")) System.exit(0);
 
-            // Check for pipeline
             List<String> pipelineParts = splitByPipe(input);
-
             if (pipelineParts.size() > 1) {
-                // PIPELINE execution
                 executePipeline(pipelineParts, originalOut, originalErr);
                 continue;
             }
 
-            // Single command
             List<String> allTokens = parseTokens(input);
             if (allTokens.isEmpty()) continue;
 
@@ -246,27 +334,18 @@ public class Main {
                 if (path.equals("~")) path = System.getenv("HOME");
                 File dir = new File(path);
                 if (!dir.isAbsolute()) dir = new File(currentDir, path);
-                if (dir.exists() && dir.isDirectory()) {
-                    currentDir = dir.getCanonicalPath();
-                } else {
-                    System.out.println("cd: " + path + ": No such file or directory");
-                }
+                if (dir.exists() && dir.isDirectory()) currentDir = dir.getCanonicalPath();
+                else System.out.println("cd: " + path + ": No such file or directory");
                 continue;
             }
 
-            if (cmd.equals("pwd")) {
-                outStream.println(currentDir);
-                continue;
-            }
+            if (cmd.equals("pwd")) { outStream.println(currentDir); continue; }
 
             if (cmd.equals("echo")) {
-                if (tokens.size() == 1) { outStream.println(); }
+                if (tokens.size() == 1) outStream.println();
                 else {
                     StringBuilder sb = new StringBuilder();
-                    for (int i = 1; i < tokens.size(); i++) {
-                        if (i > 1) sb.append(" ");
-                        sb.append(tokens.get(i));
-                    }
+                    for (int i = 1; i < tokens.size(); i++) { if (i > 1) sb.append(" "); sb.append(tokens.get(i)); }
                     outStream.println(sb.toString());
                 }
                 if (redirect.stdoutFile != null) outStream.close();
@@ -276,9 +355,8 @@ public class Main {
 
             if (cmd.equals("type")) {
                 String typeCmd = tokens.size() > 1 ? tokens.get(1) : "";
-                if (isBuiltin(typeCmd)) {
-                    outStream.println(typeCmd + " is a shell builtin");
-                } else {
+                if (isBuiltin(typeCmd)) outStream.println(typeCmd + " is a shell builtin");
+                else {
                     String path = findInPath(typeCmd);
                     if (path != null) outStream.println(typeCmd + " is " + path);
                     else outStream.println(typeCmd + ": not found");
@@ -288,7 +366,6 @@ public class Main {
                 continue;
             }
 
-            // External program
             String exePath = findInPath(cmd);
             if (exePath != null) {
                 ProcessBuilder pb = new ProcessBuilder(tokens);
@@ -314,106 +391,5 @@ public class Main {
             if (redirect.stdoutFile != null) outStream.close();
             if (redirect.stderrFile != null) errStream.close();
         }
-    }
-
-    static void executePipeline(List<String> parts, PrintStream originalOut, PrintStream originalErr) throws Exception {
-        int n = parts.size();
-        List<List<String>> allTokens = new ArrayList<>();
-        for (String part : parts) allTokens.add(parseTokens(part));
-
-        // Create pipes between commands
-        List<PipedInputStream> pipeIns = new ArrayList<>();
-        List<PipedOutputStream> pipeOuts = new ArrayList<>();
-        for (int i = 0; i < n - 1; i++) {
-            PipedOutputStream po = new PipedOutputStream();
-            PipedInputStream pi = new PipedInputStream(po);
-            pipeOuts.add(po);
-            pipeIns.add(pi);
-        }
-
-        List<Process> processes = new ArrayList<>();
-        List<Thread> threads = new ArrayList<>();
-
-        for (int i = 0; i < n; i++) {
-            List<String> tokens = allTokens.get(i);
-            String cmd = tokens.get(0);
-
-            InputStream stdinStream = (i == 0) ? null : pipeIns.get(i - 1);
-            OutputStream stdoutStream = (i == n - 1) ? null : pipeOuts.get(i);
-
-            if (isBuiltin(cmd)) {
-                // Run builtin in a thread with piped I/O
-                final int idx = i;
-                final InputStream finalIn = stdinStream;
-                final OutputStream finalOut = stdoutStream;
-                final List<String> finalTokens = tokens;
-
-                Thread t = new Thread(() -> {
-                    try {
-                        PrintStream out;
-                        if (finalOut != null) out = new PrintStream(finalOut);
-                        else out = originalOut;
-
-                        execBuiltin(finalTokens, out, originalErr, currentDir);
-
-                        if (finalOut != null) finalOut.close();
-                        if (finalIn != null) finalIn.close();
-                    } catch (Exception e) {}
-                });
-                threads.add(t);
-                t.start();
-            } else {
-                String exePath = findInPath(cmd);
-                if (exePath == null) {
-                    originalErr.println(cmd + ": command not found");
-                    continue;
-                }
-                ProcessBuilder pb = new ProcessBuilder(tokens);
-                pb.directory(new File(currentDir));
-
-                if (stdinStream != null) pb.redirectInput(ProcessBuilder.Redirect.PIPE);
-                else pb.redirectInput(ProcessBuilder.Redirect.INHERIT);
-
-                if (stdoutStream != null) pb.redirectOutput(ProcessBuilder.Redirect.PIPE);
-                else pb.redirectOutput(ProcessBuilder.Redirect.INHERIT);
-
-                pb.redirectError(ProcessBuilder.Redirect.INHERIT);
-
-                Process p = pb.start();
-                processes.add(p);
-
-                // Feed stdin from pipe
-                if (stdinStream != null) {
-                    final InputStream src = stdinStream;
-                    final OutputStream dst = p.getOutputStream();
-                    Thread t = new Thread(() -> {
-                        try {
-                            src.transferTo(dst);
-                            dst.close();
-                        } catch (Exception e) {}
-                    });
-                    threads.add(t);
-                    t.start();
-                }
-
-                // Feed stdout to next pipe
-                if (stdoutStream != null) {
-                    final InputStream src = p.getInputStream();
-                    final OutputStream dst = stdoutStream;
-                    Thread t = new Thread(() -> {
-                        try {
-                            src.transferTo(dst);
-                            dst.close();
-                        } catch (Exception e) {}
-                    });
-                    threads.add(t);
-                    t.start();
-                }
-            }
-        }
-
-        // Wait for all threads and processes
-        for (Thread t : threads) t.join();
-        for (Process p : processes) p.waitFor();
     }
 }
